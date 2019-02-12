@@ -43,6 +43,19 @@ let pp_toplevel ppf (t:Mdx.Toplevel.t) =
   let cmds = match t.command with [c] -> [c ^ ";;"] | l -> l @ [";;"] in
   Fmt.pf ppf "%a%a" (pp_list pp_line) cmds (pp_list pp_output) t.output
 
+let ast_and_comments ocaml_code =
+  Lexing.from_string ocaml_code
+  |> Reason_toolchain.ML.implementation_with_comments
+
+let reason_syntax ocaml_code =
+  Reason_toolchain.RE.print_implementation_with_comments
+    Format.str_formatter
+    (ast_and_comments ocaml_code);
+  Format.flush_str_formatter ()
+
+let pp_reason_contents (t:Mdx.Block.t) ppf =
+  Fmt.(list ~sep:(unit "\n") pp_html) ppf (t.contents |> String.concat "\n" |> reason_syntax |> String.split_on_char '\n')
+
 let pp_contents (t:Mdx.Block.t) ppf =
   Fmt.(list ~sep:(unit "\n") pp_html) ppf t.contents
 
@@ -62,7 +75,7 @@ let pp_block ppf (b:Mdx.Block.t) =
         ("data-prompt"       , "#");
         ("data-filter-output", ">");
       ]
-    | OCaml  -> Some "ocaml", pp_contents b, []
+    | OCaml  -> Some "reason", pp_reason_contents b, []
     | Cram t -> Some "bash" , (fun ppf -> pp_list pp_cram ppf t.tests), [
         ("class"             , "command-line");
         ("data-user"         , "fun");
