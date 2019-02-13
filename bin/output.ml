@@ -84,7 +84,7 @@ let pp_cram ppf (t:Mdx.Cram.t) =
 
 let pp_block ppf (b:Mdx.Block.t) =
   let lang, pp_code, attrs = match b.value with
-    | Toplevel t -> Some "ocaml", (fun ppf -> pp_list pp_toplevel ppf t), [
+    | Toplevel t -> Some "reason", (fun ppf -> pp_list pp_toplevel ppf t), [
         ("class"             , "command-line");
         ("data-prompt"       , "#");
         ("data-filter-output", ">");
