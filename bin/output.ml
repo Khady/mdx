@@ -43,21 +43,35 @@ let pp_toplevel ppf (t:Mdx.Toplevel.t) =
   let cmds = match t.command with [c] -> [c ^ ";;"] | l -> l @ [";;"] in
   Fmt.pf ppf "%a%a" (pp_list pp_line) cmds (pp_list pp_output) t.output
 
-let ast_and_comments ocaml_code =
-  Lexing.from_string ocaml_code
-  |> Reason_toolchain.ML.implementation_with_comments
-
-let reason_syntax ocaml_code =
-  Reason_toolchain.RE.print_implementation_with_comments
-    Format.str_formatter
-    (ast_and_comments ocaml_code);
+let output_syntax parser printer lexbuf =
+  printer Format.str_formatter (parser lexbuf);
   Format.flush_str_formatter ()
 
-let pp_reason_contents (t:Mdx.Block.t) ppf =
-  Fmt.(list ~sep:(unit "\n") pp_html) ppf (t.contents |> String.concat "\n" |> reason_syntax |> String.split_on_char '\n')
+let output_of_interface ocaml_code = 
+  output_syntax Reason_toolchain.ML.interface_with_comments Reason_toolchain.RE.print_interface_with_comments (Lexing.from_string ocaml_code)
 
-let pp_contents (t:Mdx.Block.t) ppf =
-  Fmt.(list ~sep:(unit "\n") pp_html) ppf t.contents
+let output_of_implementation ocaml_code = 
+  output_syntax Reason_toolchain.ML.implementation_with_comments Reason_toolchain.RE.print_implementation_with_comments (Lexing.from_string ocaml_code)
+
+let maybe_parse code output_fn  = try Some (output_fn code) with _ -> None
+
+let try_parsing code previous_result output_fn  =
+  match previous_result with
+    | None -> (maybe_parse code output_fn)
+    | result -> result
+
+let reason_syntax code =
+  List.fold_left (try_parsing code) None [output_of_interface; output_of_implementation]
+
+let pp_code code_lines ppf = Fmt.(list ~sep:(unit "\n") pp_html) ppf code_lines
+
+let pp_contents (t:Mdx.Block.t) = pp_code t.contents
+
+let pp_reason_contents (t:Mdx.Block.t) ppf =
+  let reason_contents = (t.contents |> String.concat "\n" |> reason_syntax) in
+  match reason_contents with
+  | Some contents -> pp_code (String.split_on_char '\n' contents) ppf
+  | None -> pp_contents t ppf
 
 let pp_cram ppf (t:Mdx.Cram.t) =
   let pp_exit ppf = match t.exit_code with
@@ -75,7 +89,10 @@ let pp_block ppf (b:Mdx.Block.t) =
         ("data-prompt"       , "#");
         ("data-filter-output", ">");
       ]
-    | OCaml  -> (try Some "reason", pp_reason_contents b, [] with Syntaxerr.Error(_) -> Some "ocaml", pp_contents b, [])
+    | OCaml  -> Some "reason", pp_reason_contents b, []
+    (* | OCaml  -> fun match (pp_reason_contents b) with
+      | Some contents -> Some "reason", contents, []
+      | None -> Some "ocaml", pp_contents b, [] *)
     | Cram t -> Some "bash" , (fun ppf -> pp_list pp_cram ppf t.tests), [
         ("class"             , "command-line");
         ("data-user"         , "fun");
