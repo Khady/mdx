@@ -75,7 +75,7 @@ let pp_block ppf (b:Mdx.Block.t) =
         ("data-prompt"       , "#");
         ("data-filter-output", ">");
       ]
-    | OCaml  -> Some "reason", pp_reason_contents b, []
+    | OCaml  -> (try Some "reason", pp_reason_contents b, [] with Syntaxerr.Error(_) -> Some "ocaml", pp_contents b, [])
     | Cram t -> Some "bash" , (fun ppf -> pp_list pp_cram ppf t.tests), [
         ("class"             , "command-line");
         ("data-user"         , "fun");
