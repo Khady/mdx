@@ -39,39 +39,89 @@ let pp_output ppf = function
 
 let pp_line ppf l = Fmt.pf ppf "%a\n" pp_html l
 
+let () = Reason_pprint_ast.configure
+  (* This can be made pluggable in the future. *)
+  ~width:80
+  ~assumeExplicitArity:false
+  ~constructorLists:[]
+
+let reasonFormatter = Reason_pprint_ast.createFormatter ()
+
+(* int list *)
+let parseAsCoreType str formatter =
+  Lexing.from_string str
+  |> Reason_toolchain.ML.core_type
+  |> reasonFormatter#core_type formatter
+
+(* type a = int list *)
+let parseAsImplementation str formatter =
+  Lexing.from_string str
+  |> Reason_toolchain.ML.implementation
+  |> reasonFormatter#structure [] formatter
+
+(* val a: int list *)
+let parseAsInterface str formatter =
+  Lexing.from_string str
+  |> Reason_toolchain.ML.interface
+  |> reasonFormatter#signature [] formatter
+
+(* sig val a: int list end *)
+(* This one is a hack; we should have our own parser entry point to module_type.
+But that'd require modifying compiler-libs, which we'll refrain from doing. *)
+let parseAsCoreModuleType str formatter =
+  Lexing.from_string ("module X: " ^ str)
+  |> Reason_toolchain.ML.interface
+  |> reasonFormatter#signature [] formatter
+
+let parseAsToplevelPhrase str formatter =
+  Lexing.from_string str
+  |> Reason_toolchain.ML.toplevel_phrase
+  |> reasonFormatter#toplevel_phrase formatter
+
+(* Quirky merlin/ocaml output that doesn't really parse. *)
+let parseAsWeirdListSyntax str a =
+  if str = "type 'a list = [] | :: of 'a * 'a list" then "type list 'a = [] | :: of list 'a 'a"
+  (* Manually creating an error is tedious, so we'll put a hack here to throw the previous error. *)
+  else raise (Syntaxerr.Error a)
+
+let reason_of_ocaml str =
+  let formatter = Format.str_formatter in
+  try (parseAsCoreType str formatter; Format.flush_str_formatter ())
+  with Syntaxerr.Error _ ->
+  try (parseAsInterface str formatter; Format.flush_str_formatter ())
+  with Syntaxerr.Error _ ->
+  try (parseAsImplementation str formatter; Format.flush_str_formatter ())
+  with Syntaxerr.Error _ ->
+  try (parseAsCoreModuleType str formatter; Format.flush_str_formatter ())
+  with Syntaxerr.Error _ ->
+  try (parseAsToplevelPhrase str formatter; Format.flush_str_formatter ())
+  with Syntaxerr.Error a ->
+  try (parseAsWeirdListSyntax str a)
+  with _ -> str
+
+(* let convert_toplevel_output (output:Mdx.Output.t list) =
+  output
+  |> List.fold_left (fun current -> function | `Ellipsis -> current | `Output line -> [line] @ current) []
+  |> List.rev
+  |> String.concat "\n"
+  |> Lexing.from_string
+  |> Reason_toolchain.ML.toplevel_phrase
+  |> Reason_oprint.print_out_phrase
+  (* |> String.split_on_char '\n' *)
+  |> List.map (fun output_line -> `Output output_line) *)
+
 let pp_toplevel ppf (t:Mdx.Toplevel.t) =
   let cmds = match t.command with [c] -> [c ^ ";;"] | l -> l @ [";;"] in
-  Fmt.pf ppf "%a%a" (pp_list pp_line) cmds (pp_list pp_output) t.output
-
-let output_syntax parser printer lexbuf =
-  printer Format.str_formatter (parser lexbuf);
-  Format.flush_str_formatter ()
-
-let output_of_interface ocaml_code = 
-  output_syntax Reason_toolchain.ML.interface_with_comments Reason_toolchain.RE.print_interface_with_comments (Lexing.from_string ocaml_code)
-
-let output_of_implementation ocaml_code = 
-  output_syntax Reason_toolchain.ML.implementation_with_comments Reason_toolchain.RE.print_implementation_with_comments (Lexing.from_string ocaml_code)
-
-let maybe_parse code output_fn  = try Some (output_fn code) with _ -> None
-
-let try_parsing code previous_result output_fn  =
-  match previous_result with
-    | None -> (maybe_parse code output_fn)
-    | result -> result
-
-let reason_syntax code =
-  List.fold_left (try_parsing code) None [output_of_interface; output_of_implementation]
+  let reason_cmds = cmds |> String.concat "\n" |> reason_of_ocaml |> String.split_on_char '\n' in
+    (* Fmt.pf ppf "%a%a" (pp_list pp_line) reason_cmds (pp_list pp_output) (convert_toplevel_output t.output) *)
+    Fmt.pf ppf "%a%a" (pp_list pp_line) reason_cmds (pp_list pp_output) t.output
 
 let pp_code code_lines ppf = Fmt.(list ~sep:(unit "\n") pp_html) ppf code_lines
 
 let pp_contents (t:Mdx.Block.t) = pp_code t.contents
 
-let pp_reason_contents (t:Mdx.Block.t) ppf =
-  let reason_contents = (t.contents |> String.concat "\n" |> reason_syntax) in
-  match reason_contents with
-  | Some contents -> pp_code (String.split_on_char '\n' contents) ppf
-  | None -> pp_contents t ppf
+let pp_reason_contents (t:Mdx.Block.t) =
+  pp_code (t.contents |> String.concat "\n" |> reason_of_ocaml |> String.split_on_char '\n')
 
 let pp_cram ppf (t:Mdx.Cram.t) =
   let pp_exit ppf = match t.exit_code with
