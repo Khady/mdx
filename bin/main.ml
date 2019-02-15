@@ -20,7 +20,7 @@ let cmds = [Test.cmd; Pp.cmd; Rule.cmd; Output.cmd]
 let main () = `Help (`Pager, None)
 
 let main =
-  let doc = "Execute markdown files. (Reason 4)" in
+  let doc = "Execute markdown files." in
   let exits = Term.default_exits in
   let man = [] in
   Term.(ret (const main $ Cli.setup)),
